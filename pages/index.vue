@@ -9,7 +9,6 @@ const {
   totalElapsed,
   currentSpeaker,
   speakersRemaining,
-  progress,
   timerProgress,
   timerColor,
   isOvertime,
@@ -24,7 +23,43 @@ const {
   resetStandup
 } = useStandup()
 
+const {
+  isConfigured: trelloConfigured,
+  loading: trelloLoading,
+  fetchBoardData,
+  fetchMemberTasks,
+  getTasksForMember
+} = useTrello()
+
 const newMemberName = ref('')
+
+// Fetch Trello data when stand-up starts
+const originalStartStandup = startStandup
+async function handleStartStandup() {
+  originalStartStandup()
+  if (trelloConfigured.value) {
+    await fetchBoardData()
+    await fetchMemberTasks()
+  }
+}
+
+// Get tasks for current speaker
+const currentSpeakerTasks = computed(() => {
+  if (!currentSpeaker.value?.trelloMemberId) return null
+  return getTasksForMember(currentSpeaker.value.trelloMemberId)
+})
+
+function formatDueDate(due: string | null): string {
+  if (!due) return 'No due date'
+  const date = new Date(due)
+  const now = new Date()
+  const diffDays = Math.ceil((date.getTime() - now.getTime()) / (1000 * 60 * 60 * 24))
+  const formatted = date.toLocaleDateString('en-ZA', { month: 'short', day: 'numeric' })
+  if (diffDays < 0) return `${formatted} (${Math.abs(diffDays)}d overdue)`
+  if (diffDays === 0) return `${formatted} (today)`
+  if (diffDays === 1) return `${formatted} (tomorrow)`
+  return `${formatted} (in ${diffDays}d)`
+}
 
 function handleAddMember() {
   addMember(newMemberName.value)
@@ -71,7 +106,13 @@ const fixedTimerOptions = [
 <template>
   <div class="min-h-screen bg-gradient-to-br from-violet-50 via-pink-50 to-amber-50 dark:from-gray-900 dark:via-purple-950 dark:to-gray-900 transition-colors duration-300">
     <!-- Header -->
-    <header class="px-6 py-4 flex items-center justify-end">
+    <header class="px-6 py-4 flex items-center justify-end gap-2">
+      <UButton
+        icon="i-lucide-settings"
+        color="neutral"
+        variant="ghost"
+        to="/settings"
+      />
       <UButton
         :icon="$colorMode.value === 'dark' ? 'i-lucide-sun' : 'i-lucide-moon'"
         color="neutral"
@@ -175,7 +216,7 @@ const fixedTimerOptions = [
             color="primary"
             :disabled="members.length < 2"
             class="px-12 py-4 text-lg font-bold shadow-xl shadow-violet-200 dark:shadow-violet-900/40"
-            @click="startStandup"
+            @click="handleStartStandup"
           >
             🚀 Start Stand-Up!
           </UButton>
@@ -234,6 +275,95 @@ const fixedTimerOptions = [
           <p v-if="isOvertime" class="text-red-500 font-semibold animate-pulse">
             ⏰ Time's up! Wrap it up!
           </p>
+        </div>
+
+        <!-- Trello tasks -->
+        <div v-if="currentSpeakerTasks" class="space-y-4">
+          <!-- Doing — highlighted prominently -->
+          <UCard v-if="currentSpeakerTasks.doing.length > 0" class="shadow-lg border-2 border-orange-300 dark:border-orange-600 bg-orange-50/50 dark:bg-orange-950/20">
+            <template #header>
+              <div class="flex items-center justify-between">
+                <h3 class="text-sm font-semibold text-orange-700 dark:text-orange-400 uppercase tracking-wide">Doing</h3>
+                <UBadge color="warning" variant="solid" size="sm">{{ currentSpeakerTasks.doing.length }}</UBadge>
+              </div>
+            </template>
+            <div class="space-y-2">
+              <a
+                v-for="card in currentSpeakerTasks.doing"
+                :key="card.id"
+                :href="card.url"
+                target="_blank"
+                class="block p-3 rounded-lg bg-orange-100 dark:bg-orange-900/30 hover:bg-orange-200 dark:hover:bg-orange-900/50 transition-colors border border-orange-200 dark:border-orange-700"
+              >
+                <p class="text-sm font-semibold text-gray-800 dark:text-gray-100">{{ card.name }}</p>
+                <div class="flex items-center gap-2 mt-1">
+                  <span class="text-xs text-orange-600 dark:text-orange-400">{{ card.listName }}</span>
+                  <span v-if="card.due" class="text-xs" :class="new Date(card.due) < new Date() ? 'text-red-500 font-semibold' : 'text-gray-500 dark:text-gray-400'">
+                    {{ formatDueDate(card.due) }}
+                  </span>
+                </div>
+              </a>
+            </div>
+          </UCard>
+
+          <!-- To Do — highlighted -->
+          <UCard v-if="currentSpeakerTasks.todo.length > 0" class="shadow-lg border-2 border-blue-300 dark:border-blue-600 bg-blue-50/50 dark:bg-blue-950/20">
+            <template #header>
+              <div class="flex items-center justify-between">
+                <h3 class="text-sm font-semibold text-blue-700 dark:text-blue-400 uppercase tracking-wide">To Do</h3>
+                <UBadge color="info" variant="solid" size="sm">{{ currentSpeakerTasks.todo.length }}</UBadge>
+              </div>
+            </template>
+            <div class="space-y-2">
+              <a
+                v-for="card in currentSpeakerTasks.todo.slice(0, 5)"
+                :key="card.id"
+                :href="card.url"
+                target="_blank"
+                class="block p-3 rounded-lg bg-blue-100 dark:bg-blue-900/30 hover:bg-blue-200 dark:hover:bg-blue-900/50 transition-colors border border-blue-200 dark:border-blue-700"
+              >
+                <p class="text-sm font-semibold text-gray-800 dark:text-gray-100">{{ card.name }}</p>
+                <div class="flex items-center gap-2 mt-1">
+                  <span class="text-xs text-blue-600 dark:text-blue-400">{{ card.listName }}</span>
+                  <span v-if="card.due" class="text-xs" :class="new Date(card.due) < new Date() ? 'text-red-500 font-semibold' : 'text-gray-500 dark:text-gray-400'">
+                    {{ formatDueDate(card.due) }}
+                  </span>
+                </div>
+              </a>
+              <p v-if="currentSpeakerTasks.todo.length > 5" class="text-xs text-gray-400 text-center pt-1">
+                +{{ currentSpeakerTasks.todo.length - 5 }} more
+              </p>
+            </div>
+          </UCard>
+
+          <!-- Completed — subdued -->
+          <UCard v-if="currentSpeakerTasks.completed.length > 0" class="shadow-md border border-green-100 dark:border-green-800">
+            <template #header>
+              <div class="flex items-center justify-between">
+                <h3 class="text-sm font-semibold text-green-700 dark:text-green-400 uppercase tracking-wide">Completed</h3>
+                <UBadge color="success" variant="subtle" size="sm">{{ currentSpeakerTasks.completed.length }}</UBadge>
+              </div>
+            </template>
+            <div class="space-y-2">
+              <a
+                v-for="card in currentSpeakerTasks.completed.slice(0, 5)"
+                :key="card.id"
+                :href="card.url"
+                target="_blank"
+                class="block p-2 rounded-lg bg-green-50 dark:bg-green-900/20 hover:bg-green-100 dark:hover:bg-green-900/30 transition-colors"
+              >
+                <p class="text-sm font-medium text-gray-800 dark:text-gray-100 line-clamp-1">{{ card.name }}</p>
+                <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">{{ card.listName }}</p>
+              </a>
+              <p v-if="currentSpeakerTasks.completed.length > 5" class="text-xs text-gray-400 text-center pt-1">
+                +{{ currentSpeakerTasks.completed.length - 5 }} more
+              </p>
+            </div>
+          </UCard>
+        </div>
+
+        <div v-else-if="trelloConfigured && trelloLoading" class="text-center py-4">
+          <p class="text-sm text-gray-400">Loading Trello tasks...</p>
         </div>
 
         <!-- Navigation buttons -->

@@ -1,6 +1,7 @@
 export interface TeamMember {
   id: string
   name: string
+  trelloMemberId?: string
 }
 
 export type StandupPhase = 'setup' | 'active' | 'finished'
@@ -42,23 +43,28 @@ function saveTimerDuration(seconds: number): void {
   localStorage.setItem(TIMER_KEY, String(seconds))
 }
 
+// Shared singleton state so all pages see the same data
+const members = ref<TeamMember[]>([])
+const queue = ref<TeamMember[]>([])
+const currentIndex = ref(0)
+const phase = ref<StandupPhase>('setup')
+const timerDuration = ref(90)
+const timeRemaining = ref(0)
+const timerRunning = ref(false)
+const totalElapsed = ref(0)
+let _initialized = false
+
+let timerInterval: ReturnType<typeof setInterval> | null = null
+let totalInterval: ReturnType<typeof setInterval> | null = null
+
 export function useStandup() {
-  const members = ref<TeamMember[]>([])
-  const queue = ref<TeamMember[]>([])
-  const currentIndex = ref(0)
-  const phase = ref<StandupPhase>('setup')
-  const timerDuration = ref(90)
-  const timeRemaining = ref(0)
-  const timerRunning = ref(false)
-  const totalElapsed = ref(0)
-
-  let timerInterval: ReturnType<typeof setInterval> | null = null
-  let totalInterval: ReturnType<typeof setInterval> | null = null
-
-  // Initialize from localStorage on client
+  // Initialize from localStorage once on client
   onMounted(() => {
-    members.value = loadMembers()
-    timerDuration.value = loadTimerDuration()
+    if (!_initialized) {
+      members.value = loadMembers()
+      timerDuration.value = loadTimerDuration()
+      _initialized = true
+    }
   })
 
   // Team management
