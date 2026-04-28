@@ -12,7 +12,7 @@ export default defineNuxtConfig({
   app: {
     // Set baseURL to your repo name for GitHub Pages
     // Change this if your repo has a different name
-    baseURL: process.env.NUXT_APP_BASE_URL || '/teampulse/',
+    baseURL: process.env.NUXT_APP_BASE_URL || '/team-pulse/',
     head: {
       title: 'TeamPulse',
       meta: [

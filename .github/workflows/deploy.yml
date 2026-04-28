@@ -28,7 +28,7 @@ jobs:
 
       - run: npx nuxi generate
         env:
-          NUXT_APP_BASE_URL: /teampulse/
+          NUXT_APP_BASE_URL: /team-pulse/
 
       - uses: actions/upload-pages-artifact@v3
         with:

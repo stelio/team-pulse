@@ -33,10 +33,14 @@ const {
 
 const newMemberName = ref('')
 
-// Fetch Trello data when stand-up starts
-const originalStartStandup = startStandup
+// Fetch Trello data when stand-up starts (using only active members)
 async function handleStartStandup() {
-  originalStartStandup()
+  if (activeMembers.value.length < 2) return
+  // Temporarily swap members to only active ones for the shuffle
+  const allMembers = [...members.value]
+  members.value = activeMembers.value
+  startStandup()
+  members.value = allMembers
   if (trelloConfigured.value) {
     await fetchBoardData()
     await fetchMemberTasks()
@@ -66,6 +70,23 @@ function handleAddMember() {
   newMemberName.value = ''
 }
 
+// Track excluded members for this session
+const excludedIds = ref(new Set<string>())
+
+function toggleExclude(id: string) {
+  const next = new Set(excludedIds.value)
+  if (next.has(id)) {
+    next.delete(id)
+  } else {
+    next.add(id)
+  }
+  excludedIds.value = next
+}
+
+const activeMembers = computed(() =>
+  members.value.filter(m => !excludedIds.value.has(m.id))
+)
+
 function formatTime(seconds: number): string {
   const mins = Math.floor(seconds / 60)
   const secs = seconds % 60
@@ -73,18 +94,18 @@ function formatTime(seconds: number): string {
 }
 
 const fairShareSeconds = computed(() => {
-  if (members.value.length === 0) return 0
-  return Math.floor(900 / members.value.length)
+  if (activeMembers.value.length === 0) return 0
+  return Math.floor(900 / activeMembers.value.length)
 })
 
-const useFairShare = ref(false)
+const useFairShare = ref(true)
 
-// Sync fair-share selection when member count changes
+// Sync fair-share selection when member count changes or on init
 watch(fairShareSeconds, (val) => {
   if (useFairShare.value) {
     setTimerDuration(val)
   }
-})
+}, { immediate: true })
 
 function selectFairShare() {
   useFairShare.value = true
@@ -121,7 +142,7 @@ const fixedTimerOptions = [
       />
     </header>
 
-    <main class="max-w-2xl mx-auto px-6 pb-12">
+    <main class="mx-auto pb-12" :class="phase === 'active' ? 'px-4' : 'px-6 max-w-2xl'">
       <!-- SETUP PHASE -->
       <div v-if="phase === 'setup'" class="space-y-8">
         <!-- Add member form -->
@@ -157,10 +178,17 @@ const fixedTimerOptions = [
             <div
               v-for="member in members"
               :key="member.id"
-              class="flex items-center justify-between p-3 rounded-xl bg-gradient-to-r from-violet-50 to-pink-50 dark:from-violet-900/30 dark:to-pink-900/30 border border-violet-100 dark:border-violet-800"
+              class="flex items-center justify-between p-3 rounded-xl bg-gradient-to-r border transition-opacity"
+              :class="excludedIds.has(member.id)
+                ? 'from-gray-100 to-gray-100 dark:from-gray-800/30 dark:to-gray-800/30 border-gray-200 dark:border-gray-700 opacity-50'
+                : 'from-violet-50 to-pink-50 dark:from-violet-900/30 dark:to-pink-900/30 border-violet-100 dark:border-violet-800'"
             >
-              <div class="flex items-center gap-3">
-                <span class="font-medium text-gray-800 dark:text-gray-100">{{ member.name }}</span>
+              <div class="flex items-center gap-3 cursor-pointer" @click="toggleExclude(member.id)">
+                <UIcon
+                  :name="excludedIds.has(member.id) ? 'i-lucide-user-x' : 'i-lucide-user-check'"
+                  :class="excludedIds.has(member.id) ? 'text-gray-400' : 'text-green-500'"
+                />
+                <span class="font-medium" :class="excludedIds.has(member.id) ? 'text-gray-400 line-through' : 'text-gray-800 dark:text-gray-100'">{{ member.name }}</span>
               </div>
               <UButton
                 icon="i-lucide-x"
@@ -201,10 +229,10 @@ const fixedTimerOptions = [
               :color="useFairShare ? 'primary' : 'neutral'"
               :variant="useFairShare ? 'solid' : 'outline'"
               size="lg"
-              :disabled="members.length === 0"
+              :disabled="activeMembers.length === 0"
               @click="selectFairShare"
             >
-              15min / {{ members.length || '?' }} = {{ members.length ? formatTime(fairShareSeconds) : '???' }}
+              15min / {{ activeMembers.length || '?' }} = {{ activeMembers.length ? formatTime(fairShareSeconds) : '???' }}
             </UButton>
           </div>
         </UCard>
@@ -214,218 +242,218 @@ const fixedTimerOptions = [
           <UButton
             size="xl"
             color="primary"
-            :disabled="members.length < 2"
+            :disabled="activeMembers.length < 2"
             class="px-12 py-4 text-lg font-bold shadow-xl shadow-violet-200 dark:shadow-violet-900/40"
             @click="handleStartStandup"
           >
             🚀 Start Stand-Up!
           </UButton>
-          <p v-if="members.length < 2" class="text-sm text-gray-400 mt-3">
-            Add at least 2 team members to begin
+          <p v-if="activeMembers.length < 2" class="text-sm text-gray-400 mt-3">
+            At least 2 active team members needed to begin
           </p>
         </div>
       </div>
 
       <!-- ACTIVE PHASE -->
       <div v-else-if="phase === 'active'" class="space-y-6">
-        <!-- Speaker info -->
-        <div class="flex justify-between text-sm text-gray-500 dark:text-gray-400">
+        <!-- Top bar: speaker count + total time -->
+        <div class="flex justify-between text-lg text-gray-500 dark:text-gray-400 px-2">
           <span>Speaker {{ currentIndex + 1 }} of {{ queue.length }}</span>
           <span>Total: {{ formatTime(totalElapsed) }}</span>
         </div>
 
-        <!-- Current speaker card -->
-        <Transition name="bounce" mode="out-in">
-          <UCard
-            :key="currentSpeaker?.id"
-            class="shadow-2xl border-2 text-center py-8"
-            :class="[
-              isOvertime
-                ? 'border-red-300 dark:border-red-700 pulse-warning'
-                : 'border-violet-200 dark:border-violet-700'
-            ]"
-          >
-            <div class="space-y-4">
-              <h2 class="text-3xl font-bold text-gray-800 dark:text-gray-100">
-                {{ currentSpeaker?.name }}
-              </h2>
-              <p class="text-gray-400 text-sm uppercase tracking-wide">is speaking</p>
-            </div>
-          </UCard>
-        </Transition>
-
-        <!-- Timer display -->
-        <div class="text-center space-y-4">
-          <div
-            class="text-6xl font-mono font-bold transition-colors duration-300"
-            :class="{
-              'text-green-500': timerColor === 'success',
-              'text-amber-500': timerColor === 'warning',
-              'text-red-500 pulse-warning': timerColor === 'error'
-            }"
-          >
-            {{ formatTime(timeRemaining) }}
-          </div>
-          <UProgress
-            :value="timerProgress"
-            :color="timerColor"
-            size="lg"
-            class="max-w-xs mx-auto"
-          />
-          <p v-if="isOvertime" class="text-red-500 font-semibold animate-pulse">
-            ⏰ Time's up! Wrap it up!
-          </p>
-        </div>
-
-        <!-- Trello tasks -->
-        <div v-if="currentSpeakerTasks" class="space-y-4">
-          <!-- Doing — highlighted prominently -->
-          <UCard v-if="currentSpeakerTasks.doing.length > 0" class="shadow-lg border-2 border-orange-300 dark:border-orange-600 bg-orange-50/50 dark:bg-orange-950/20">
-            <template #header>
-              <div class="flex items-center justify-between">
-                <h3 class="text-sm font-semibold text-orange-700 dark:text-orange-400 uppercase tracking-wide">Doing</h3>
-                <UBadge color="warning" variant="solid" size="sm">{{ currentSpeakerTasks.doing.length }}</UBadge>
-              </div>
-            </template>
-            <div class="space-y-2">
-              <a
-                v-for="card in currentSpeakerTasks.doing"
-                :key="card.id"
-                :href="card.url"
-                target="_blank"
-                class="block p-3 rounded-lg bg-orange-100 dark:bg-orange-900/30 hover:bg-orange-200 dark:hover:bg-orange-900/50 transition-colors border border-orange-200 dark:border-orange-700"
+        <!-- Main layout: speaker/timer left, tasks right -->
+        <div class="grid grid-cols-1 lg:grid-cols-4 gap-4 min-h-[calc(100vh-8rem)]">
+          <!-- Left column: speaker + timer + nav -->
+          <div class="flex flex-col space-y-6 py-2">
+            <!-- Current speaker card -->
+            <Transition name="bounce" mode="out-in">
+              <UCard
+                :key="currentSpeaker?.id"
+                class="shadow-2xl border-2 text-center py-12"
+                :class="[
+                  isOvertime
+                    ? 'border-red-300 dark:border-red-700 pulse-warning'
+                    : 'border-violet-200 dark:border-violet-700'
+                ]"
               >
-                <p class="text-sm font-semibold text-gray-800 dark:text-gray-100">{{ card.name }}</p>
-                <div class="flex items-center gap-2 mt-1">
-                  <span class="text-xs text-orange-600 dark:text-orange-400">{{ card.listName }}</span>
-                  <span v-if="card.due" class="text-xs" :class="new Date(card.due) < new Date() ? 'text-red-500 font-semibold' : 'text-gray-500 dark:text-gray-400'">
-                    {{ formatDueDate(card.due) }}
-                  </span>
+                <div class="space-y-3">
+                  <h2 class="text-5xl font-bold text-gray-800 dark:text-gray-100">
+                    {{ currentSpeaker?.name }}
+                  </h2>
+                  <p class="text-gray-400 text-lg uppercase tracking-widest">is speaking</p>
                 </div>
-              </a>
-            </div>
-          </UCard>
+              </UCard>
+            </Transition>
 
-          <!-- To Do — highlighted -->
-          <UCard v-if="currentSpeakerTasks.todo.length > 0" class="shadow-lg border-2 border-blue-300 dark:border-blue-600 bg-blue-50/50 dark:bg-blue-950/20">
-            <template #header>
-              <div class="flex items-center justify-between">
-                <h3 class="text-sm font-semibold text-blue-700 dark:text-blue-400 uppercase tracking-wide">To Do</h3>
-                <UBadge color="info" variant="solid" size="sm">{{ currentSpeakerTasks.todo.length }}</UBadge>
-              </div>
-            </template>
-            <div class="space-y-2">
-              <a
-                v-for="card in currentSpeakerTasks.todo.slice(0, 5)"
-                :key="card.id"
-                :href="card.url"
-                target="_blank"
-                class="block p-3 rounded-lg bg-blue-100 dark:bg-blue-900/30 hover:bg-blue-200 dark:hover:bg-blue-900/50 transition-colors border border-blue-200 dark:border-blue-700"
+            <!-- Timer display -->
+            <div class="text-center space-y-4">
+              <div
+                class="text-8xl font-mono font-bold transition-colors duration-300"
+                :class="{
+                  'text-green-500': timerColor === 'success',
+                  'text-amber-500': timerColor === 'warning',
+                  'text-red-500 pulse-warning': timerColor === 'error'
+                }"
               >
-                <p class="text-sm font-semibold text-gray-800 dark:text-gray-100">{{ card.name }}</p>
-                <div class="flex items-center gap-2 mt-1">
-                  <span class="text-xs text-blue-600 dark:text-blue-400">{{ card.listName }}</span>
-                  <span v-if="card.due" class="text-xs" :class="new Date(card.due) < new Date() ? 'text-red-500 font-semibold' : 'text-gray-500 dark:text-gray-400'">
-                    {{ formatDueDate(card.due) }}
-                  </span>
-                </div>
-              </a>
-              <p v-if="currentSpeakerTasks.todo.length > 5" class="text-xs text-gray-400 text-center pt-1">
-                +{{ currentSpeakerTasks.todo.length - 5 }} more
+                {{ formatTime(timeRemaining) }}
+              </div>
+              <UProgress
+                :value="timerProgress"
+                :color="timerColor"
+                size="xl"
+              />
+              <p v-if="isOvertime" class="text-red-500 text-xl font-semibold animate-pulse">
+                ⏰ Time's up! Wrap it up!
               </p>
             </div>
-          </UCard>
 
-          <!-- Completed — subdued -->
-          <UCard v-if="currentSpeakerTasks.completed.length > 0" class="shadow-md border border-green-100 dark:border-green-800">
-            <template #header>
-              <div class="flex items-center justify-between">
-                <h3 class="text-sm font-semibold text-green-700 dark:text-green-400 uppercase tracking-wide">Completed</h3>
-                <UBadge color="success" variant="subtle" size="sm">{{ currentSpeakerTasks.completed.length }}</UBadge>
-              </div>
-            </template>
-            <div class="space-y-2">
-              <a
-                v-for="card in currentSpeakerTasks.completed.slice(0, 5)"
-                :key="card.id"
-                :href="card.url"
-                target="_blank"
-                class="block p-2 rounded-lg bg-green-50 dark:bg-green-900/20 hover:bg-green-100 dark:hover:bg-green-900/30 transition-colors"
+            <!-- Navigation buttons -->
+            <div class="flex justify-center gap-4">
+              <UButton
+                icon="i-lucide-skip-back"
+                color="neutral"
+                variant="outline"
+                size="xl"
+                class="text-lg px-6 py-3"
+                :disabled="currentIndex === 0"
+                @click="previousSpeaker"
               >
-                <p class="text-sm font-medium text-gray-800 dark:text-gray-100 line-clamp-1">{{ card.name }}</p>
-                <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">{{ card.listName }}</p>
-              </a>
-              <p v-if="currentSpeakerTasks.completed.length > 5" class="text-xs text-gray-400 text-center pt-1">
-                +{{ currentSpeakerTasks.completed.length - 5 }} more
-              </p>
+                Previous
+              </UButton>
+              <UButton
+                v-if="!isLastSpeaker"
+                icon="i-lucide-skip-forward"
+                trailing
+                color="primary"
+                size="xl"
+                class="text-lg px-6 py-3"
+                @click="nextSpeaker"
+              >
+                Next Speaker
+              </UButton>
+              <UButton
+                v-else
+                icon="i-lucide-flag"
+                trailing
+                color="success"
+                size="xl"
+                class="text-lg px-6 py-3"
+                @click="finishStandup"
+              >
+                Finish!
+              </UButton>
             </div>
-          </UCard>
-        </div>
 
-        <div v-else-if="trelloConfigured && trelloLoading" class="text-center py-4">
-          <p class="text-sm text-gray-400">Loading Trello tasks...</p>
-        </div>
+            <!-- Up next -->
+            <div v-if="speakersRemaining > 0">
+              <p class="text-base text-gray-400 dark:text-gray-500 text-center mb-3">Up next:</p>
+              <div class="flex flex-wrap justify-center gap-2">
+                <UBadge
+                  v-for="member in queue.slice(currentIndex + 1)"
+                  :key="member.id"
+                  color="neutral"
+                  variant="subtle"
+                  size="lg"
+                  class="text-base"
+                >
+                  {{ member.name }}
+                </UBadge>
+              </div>
+            </div>
 
-        <!-- Navigation buttons -->
-        <div class="flex justify-center gap-4 pt-4">
-          <UButton
-            icon="i-lucide-skip-back"
-            color="neutral"
-            variant="outline"
-            size="lg"
-            :disabled="currentIndex === 0"
-            @click="previousSpeaker"
-          >
-            Previous
-          </UButton>
-          <UButton
-            v-if="!isLastSpeaker"
-            icon="i-lucide-skip-forward"
-            trailing
-            color="primary"
-            size="lg"
-            @click="nextSpeaker"
-          >
-            Next Speaker
-          </UButton>
-          <UButton
-            v-else
-            icon="i-lucide-flag"
-            trailing
-            color="success"
-            size="lg"
-            @click="finishStandup"
-          >
-            Finish!
-          </UButton>
-        </div>
-
-        <!-- Up next -->
-        <div v-if="speakersRemaining > 0" class="pt-4">
-          <p class="text-sm text-gray-400 dark:text-gray-500 text-center mb-3">Up next:</p>
-          <div class="flex flex-wrap justify-center gap-2">
-            <UBadge
-              v-for="member in queue.slice(currentIndex + 1)"
-              :key="member.id"
-              color="neutral"
-              variant="subtle"
-              size="lg"
-            >
-              {{ member.name }}
-            </UBadge>
+            <!-- Cancel -->
+            <div class="text-center">
+              <UButton color="neutral" variant="ghost" size="sm" @click="resetStandup">
+                Cancel Stand-Up
+              </UButton>
+            </div>
           </div>
-        </div>
 
-        <!-- Cancel button -->
-        <div class="text-center pt-6">
-          <UButton
-            color="neutral"
-            variant="ghost"
-            size="sm"
-            @click="resetStandup"
-          >
-            Cancel Stand-Up
-          </UButton>
+          <!-- Right columns: Trello tasks (spans 3 cols) -->
+          <div v-if="currentSpeakerTasks" class="lg:col-span-3 grid grid-cols-1 md:grid-cols-3 gap-4">
+            <!-- Doing -->
+            <UCard class="shadow-lg border-2 border-orange-300 dark:border-orange-600 bg-orange-50/50 dark:bg-orange-950/20">
+              <template #header>
+                <div class="flex items-center justify-between">
+                  <h3 class="text-lg font-bold text-orange-700 dark:text-orange-400 uppercase tracking-wide">Doing</h3>
+                  <UBadge color="warning" variant="solid" size="lg">{{ currentSpeakerTasks.doing.length }}</UBadge>
+                </div>
+              </template>
+              <div v-if="currentSpeakerTasks.doing.length > 0" class="space-y-3">
+                <a
+                  v-for="card in currentSpeakerTasks.doing"
+                  :key="card.id"
+                  :href="card.url"
+                  target="_blank"
+                  class="block p-4 rounded-lg bg-orange-100 dark:bg-orange-900/30 hover:bg-orange-200 dark:hover:bg-orange-900/50 transition-colors border border-orange-200 dark:border-orange-700"
+                >
+                  <p class="text-lg font-semibold text-gray-800 dark:text-gray-100">{{ card.name }}</p>
+                  <p v-if="card.due" class="text-base mt-2" :class="new Date(card.due) < new Date() ? 'text-red-500 font-semibold' : 'text-gray-500 dark:text-gray-400'">
+                    {{ formatDueDate(card.due) }}
+                  </p>
+                </a>
+              </div>
+              <p v-else class="text-lg text-gray-400 dark:text-gray-500 text-center py-6">No cards</p>
+            </UCard>
+
+            <!-- To Do -->
+            <UCard class="shadow-lg border-2 border-blue-300 dark:border-blue-600 bg-blue-50/50 dark:bg-blue-950/20">
+              <template #header>
+                <div class="flex items-center justify-between">
+                  <h3 class="text-lg font-bold text-blue-700 dark:text-blue-400 uppercase tracking-wide">To Do</h3>
+                  <UBadge color="info" variant="solid" size="lg">{{ currentSpeakerTasks.todo.length }}</UBadge>
+                </div>
+              </template>
+              <div v-if="currentSpeakerTasks.todo.length > 0" class="space-y-3">
+                <a
+                  v-for="card in currentSpeakerTasks.todo.slice(0, 8)"
+                  :key="card.id"
+                  :href="card.url"
+                  target="_blank"
+                  class="block p-4 rounded-lg bg-blue-100 dark:bg-blue-900/30 hover:bg-blue-200 dark:hover:bg-blue-900/50 transition-colors border border-blue-200 dark:border-blue-700"
+                >
+                  <p class="text-lg font-semibold text-gray-800 dark:text-gray-100">{{ card.name }}</p>
+                  <p v-if="card.due" class="text-base mt-2" :class="new Date(card.due) < new Date() ? 'text-red-500 font-semibold' : 'text-gray-500 dark:text-gray-400'">
+                    {{ formatDueDate(card.due) }}
+                  </p>
+                </a>
+                <p v-if="currentSpeakerTasks.todo.length > 8" class="text-base text-gray-400 text-center pt-1">
+                  +{{ currentSpeakerTasks.todo.length - 8 }} more
+                </p>
+              </div>
+              <p v-else class="text-lg text-gray-400 dark:text-gray-500 text-center py-6">No cards</p>
+            </UCard>
+
+            <!-- Completed -->
+            <UCard class="shadow-md border-2 border-green-200 dark:border-green-800">
+              <template #header>
+                <div class="flex items-center justify-between">
+                  <h3 class="text-lg font-bold text-green-700 dark:text-green-400 uppercase tracking-wide">Completed</h3>
+                  <UBadge color="success" variant="subtle" size="lg">{{ currentSpeakerTasks.completed.length }}</UBadge>
+                </div>
+              </template>
+              <div v-if="currentSpeakerTasks.completed.length > 0" class="space-y-3">
+                <a
+                  v-for="card in currentSpeakerTasks.completed.slice(0, 8)"
+                  :key="card.id"
+                  :href="card.url"
+                  target="_blank"
+                  class="block p-4 rounded-lg bg-green-50 dark:bg-green-900/20 hover:bg-green-100 dark:hover:bg-green-900/30 transition-colors"
+                >
+                  <p class="text-lg font-medium text-gray-800 dark:text-gray-100">{{ card.name }}</p>
+                </a>
+                <p v-if="currentSpeakerTasks.completed.length > 8" class="text-base text-gray-400 text-center pt-1">
+                  +{{ currentSpeakerTasks.completed.length - 8 }} more
+                </p>
+              </div>
+              <p v-else class="text-lg text-gray-400 dark:text-gray-500 text-center py-6">No cards</p>
+            </UCard>
+          </div>
+
+          <div v-else-if="trelloConfigured && trelloLoading" class="lg:col-span-3 flex items-center justify-center">
+            <p class="text-lg text-gray-400">Loading Trello tasks...</p>
+          </div>
         </div>
       </div>
 
