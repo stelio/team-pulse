@@ -389,6 +389,46 @@ const fixedTimerOptions = [
 
           <!-- Right columns: Trello tasks (spans 3 cols) -->
           <div v-if="currentSpeakerTasks" class="lg:col-span-3 grid grid-cols-1 md:grid-cols-3 gap-4">
+            <!-- Completed -->
+            <UCard class="shadow-md border-2 border-green-200 dark:border-green-800">
+              <template #header>
+                <div class="flex items-center justify-between">
+                  <h3 class="text-lg font-bold text-green-700 dark:text-green-400 uppercase tracking-wide">Completed</h3>
+                  <UBadge color="success" variant="subtle" size="lg">{{ currentSpeakerTasks.completed.length }}</UBadge>
+                </div>
+              </template>
+              <div v-if="currentSpeakerTasks.completed.length > 0" class="space-y-3">
+                <div
+                  v-for="card in currentSpeakerTasks.completed.slice(0, 8)"
+                  :key="card.id"
+                  class="p-4 rounded-lg bg-green-50 dark:bg-green-900/20"
+                >
+                  <a :href="card.url" target="_blank" class="block hover:opacity-80 transition-opacity">
+                    <p class="text-lg font-medium text-gray-800 dark:text-gray-100">{{ card.name }}</p>
+                  </a>
+                  <div v-if="card.checklists && card.checklists.length > 0" class="mt-3 space-y-2">
+                    <div v-for="cl in card.checklists" :key="cl.id">
+                      <p class="text-xs font-semibold text-green-600 dark:text-green-300 uppercase tracking-wide mb-1">{{ cl.name }}</p>
+                      <div class="space-y-1">
+                        <div v-for="item in cl.checkItems" :key="item.id" class="flex items-start gap-2">
+                          <UIcon
+                            :name="item.state === 'complete' ? 'i-lucide-check-square' : 'i-lucide-square'"
+                            :class="item.state === 'complete' ? 'text-green-500 mt-0.5' : 'text-gray-400 mt-0.5'"
+                            class="text-sm flex-shrink-0"
+                          />
+                          <span class="text-sm" :class="item.state === 'complete' ? 'line-through text-gray-400' : 'text-gray-700 dark:text-gray-300'">{{ item.name }}</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <p v-if="currentSpeakerTasks.completed.length > 8" class="text-base text-gray-400 text-center pt-1">
+                  +{{ currentSpeakerTasks.completed.length - 8 }} more
+                </p>
+              </div>
+              <p v-else class="text-lg text-gray-400 dark:text-gray-500 text-center py-6">No cards</p>
+            </UCard>
+
             <!-- Doing -->
             <UCard class="shadow-lg border-2 border-orange-300 dark:border-orange-600 bg-orange-50/50 dark:bg-orange-950/20">
               <template #header>
@@ -398,18 +438,33 @@ const fixedTimerOptions = [
                 </div>
               </template>
               <div v-if="currentSpeakerTasks.doing.length > 0" class="space-y-3">
-                <a
+                <div
                   v-for="card in currentSpeakerTasks.doing"
                   :key="card.id"
-                  :href="card.url"
-                  target="_blank"
-                  class="block p-4 rounded-lg bg-orange-100 dark:bg-orange-900/30 hover:bg-orange-200 dark:hover:bg-orange-900/50 transition-colors border border-orange-200 dark:border-orange-700"
+                  class="p-4 rounded-lg bg-orange-100 dark:bg-orange-900/30 border border-orange-200 dark:border-orange-700"
                 >
-                  <p class="text-lg font-semibold text-gray-800 dark:text-gray-100">{{ card.name }}</p>
-                  <p v-if="card.due" class="text-base mt-2" :class="new Date(card.due) < new Date() ? 'text-red-500 font-semibold' : 'text-gray-500 dark:text-gray-400'">
-                    {{ formatDueDate(card.due) }}
-                  </p>
-                </a>
+                  <a :href="card.url" target="_blank" class="block hover:opacity-80 transition-opacity">
+                    <p class="text-lg font-semibold text-gray-800 dark:text-gray-100">{{ card.name }}</p>
+                    <p v-if="card.due" class="text-base mt-2" :class="new Date(card.due) < new Date() ? 'text-red-500 font-semibold' : 'text-gray-500 dark:text-gray-400'">
+                      {{ formatDueDate(card.due) }}
+                    </p>
+                  </a>
+                  <div v-if="card.checklists && card.checklists.length > 0" class="mt-3 space-y-2">
+                    <div v-for="cl in card.checklists" :key="cl.id">
+                      <p class="text-xs font-semibold text-orange-600 dark:text-orange-300 uppercase tracking-wide mb-1">{{ cl.name }}</p>
+                      <div class="space-y-1">
+                        <div v-for="item in cl.checkItems" :key="item.id" class="flex items-start gap-2">
+                          <UIcon
+                            :name="item.state === 'complete' ? 'i-lucide-check-square' : 'i-lucide-square'"
+                            :class="item.state === 'complete' ? 'text-green-500 mt-0.5' : 'text-gray-400 mt-0.5'"
+                            class="text-sm flex-shrink-0"
+                          />
+                          <span class="text-sm" :class="item.state === 'complete' ? 'line-through text-gray-400' : 'text-gray-700 dark:text-gray-300'">{{ item.name }}</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
               </div>
               <p v-else class="text-lg text-gray-400 dark:text-gray-500 text-center py-6">No cards</p>
             </UCard>
@@ -423,45 +478,35 @@ const fixedTimerOptions = [
                 </div>
               </template>
               <div v-if="currentSpeakerTasks.todo.length > 0" class="space-y-3">
-                <a
+                <div
                   v-for="card in currentSpeakerTasks.todo.slice(0, 8)"
                   :key="card.id"
-                  :href="card.url"
-                  target="_blank"
-                  class="block p-4 rounded-lg bg-blue-100 dark:bg-blue-900/30 hover:bg-blue-200 dark:hover:bg-blue-900/50 transition-colors border border-blue-200 dark:border-blue-700"
+                  class="p-4 rounded-lg bg-blue-100 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-700"
                 >
-                  <p class="text-lg font-semibold text-gray-800 dark:text-gray-100">{{ card.name }}</p>
-                  <p v-if="card.due" class="text-base mt-2" :class="new Date(card.due) < new Date() ? 'text-red-500 font-semibold' : 'text-gray-500 dark:text-gray-400'">
-                    {{ formatDueDate(card.due) }}
-                  </p>
-                </a>
+                  <a :href="card.url" target="_blank" class="block hover:opacity-80 transition-opacity">
+                    <p class="text-lg font-semibold text-gray-800 dark:text-gray-100">{{ card.name }}</p>
+                    <p v-if="card.due" class="text-base mt-2" :class="new Date(card.due) < new Date() ? 'text-red-500 font-semibold' : 'text-gray-500 dark:text-gray-400'">
+                      {{ formatDueDate(card.due) }}
+                    </p>
+                  </a>
+                  <div v-if="card.checklists && card.checklists.length > 0" class="mt-3 space-y-2">
+                    <div v-for="cl in card.checklists" :key="cl.id">
+                      <p class="text-xs font-semibold text-blue-600 dark:text-blue-300 uppercase tracking-wide mb-1">{{ cl.name }}</p>
+                      <div class="space-y-1">
+                        <div v-for="item in cl.checkItems" :key="item.id" class="flex items-start gap-2">
+                          <UIcon
+                            :name="item.state === 'complete' ? 'i-lucide-check-square' : 'i-lucide-square'"
+                            :class="item.state === 'complete' ? 'text-green-500 mt-0.5' : 'text-gray-400 mt-0.5'"
+                            class="text-sm flex-shrink-0"
+                          />
+                          <span class="text-sm" :class="item.state === 'complete' ? 'line-through text-gray-400' : 'text-gray-700 dark:text-gray-300'">{{ item.name }}</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
                 <p v-if="currentSpeakerTasks.todo.length > 8" class="text-base text-gray-400 text-center pt-1">
                   +{{ currentSpeakerTasks.todo.length - 8 }} more
-                </p>
-              </div>
-              <p v-else class="text-lg text-gray-400 dark:text-gray-500 text-center py-6">No cards</p>
-            </UCard>
-
-            <!-- Completed -->
-            <UCard class="shadow-md border-2 border-green-200 dark:border-green-800">
-              <template #header>
-                <div class="flex items-center justify-between">
-                  <h3 class="text-lg font-bold text-green-700 dark:text-green-400 uppercase tracking-wide">Completed</h3>
-                  <UBadge color="success" variant="subtle" size="lg">{{ currentSpeakerTasks.completed.length }}</UBadge>
-                </div>
-              </template>
-              <div v-if="currentSpeakerTasks.completed.length > 0" class="space-y-3">
-                <a
-                  v-for="card in currentSpeakerTasks.completed.slice(0, 8)"
-                  :key="card.id"
-                  :href="card.url"
-                  target="_blank"
-                  class="block p-4 rounded-lg bg-green-50 dark:bg-green-900/20 hover:bg-green-100 dark:hover:bg-green-900/30 transition-colors"
-                >
-                  <p class="text-lg font-medium text-gray-800 dark:text-gray-100">{{ card.name }}</p>
-                </a>
-                <p v-if="currentSpeakerTasks.completed.length > 8" class="text-base text-gray-400 text-center pt-1">
-                  +{{ currentSpeakerTasks.completed.length - 8 }} more
                 </p>
               </div>
               <p v-else class="text-lg text-gray-400 dark:text-gray-500 text-center py-6">No cards</p>

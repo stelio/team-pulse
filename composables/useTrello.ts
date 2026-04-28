@@ -15,6 +15,18 @@ export interface TrelloMember {
   avatarUrl: string | null
 }
 
+export interface TrelloCheckItem {
+  id: string
+  name: string
+  state: 'complete' | 'incomplete'
+}
+
+export interface TrelloChecklist {
+  id: string
+  name: string
+  checkItems: TrelloCheckItem[]
+}
+
 export interface TrelloCard {
   id: string
   name: string
@@ -24,6 +36,7 @@ export interface TrelloCard {
   listName: string
   url: string
   labels: { name: string; color: string }[]
+  checklists: TrelloChecklist[]
 }
 
 export interface MemberTasks {
@@ -173,22 +186,41 @@ export function useTrello() {
     loading.value = true
     error.value = ''
     try {
-      // Fetch cards from all selected boards in parallel
-      const allCards = (await Promise.all(
-        boardIds.value.map(id =>
-          trelloFetch<(TrelloCard & { idMembers: string[] })[]>(
-            `/boards/${id}/cards?fields=name,due,dueComplete,idList,idMembers,url,labels`
+      // Fetch cards and checklists from all selected boards in parallel
+      const boardResults = await Promise.all(
+        boardIds.value.map(id => Promise.all([
+          trelloFetch<(TrelloCard & { idMembers: string[], idChecklists: string[] })[]>(
+            `/boards/${id}/cards?fields=name,due,dueComplete,idList,idMembers,url,labels,idChecklists`
+          ),
+          trelloFetch<(TrelloChecklist & { idCard: string })[]>(
+            `/boards/${id}/checklists?fields=name,idCard&checkItem_fields=name,state`
           )
-        )
-      )).flat()
+        ]))
+      )
+
+      const allCards = boardResults.flatMap(([cards]) => cards)
+
+      // Build a card id -> checklists map
+      const cardChecklistMap = new Map<string, TrelloChecklist[]>()
+      for (const [, checklists] of boardResults) {
+        for (const cl of checklists) {
+          const existing = cardChecklistMap.get(cl.idCard) || []
+          existing.push({ id: cl.id, name: cl.name, checkItems: cl.checkItems || [] })
+          cardChecklistMap.set(cl.idCard, existing)
+        }
+      }
 
       // Build a list id -> name map
       const listMap = new Map(lists.value.map(l => [l.id, l.name]))
       const doneListIds = new Set(doneLists.value)
 
-      // Enrich cards with list names and map members
+      // Enrich cards with list names, checklists, and map members
       const cardMembers = allCards.map(card => ({
-        card: { ...card, listName: listMap.get(card.idList) || 'Unknown' },
+        card: {
+          ...card,
+          listName: listMap.get(card.idList) || 'Unknown',
+          checklists: cardChecklistMap.get(card.id) || []
+        },
         memberIds: card.idMembers || []
       }))
 
