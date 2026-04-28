@@ -265,7 +265,7 @@ const fixedTimerOptions = [
         <!-- Main layout: speaker/timer left, tasks right -->
         <div class="grid grid-cols-1 lg:grid-cols-4 gap-4 min-h-[calc(100vh-8rem)]">
           <!-- Left column: speaker + timer + nav -->
-          <div class="flex flex-col space-y-6 py-2">
+          <div class="flex flex-col space-y-6">
             <!-- Current speaker card -->
             <Transition name="bounce" mode="out-in">
               <UCard
