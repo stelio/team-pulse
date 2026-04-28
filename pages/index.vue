@@ -32,6 +32,7 @@ const {
 } = useTrello()
 
 const newMemberName = ref('')
+const showChecklists = ref(true)
 
 // Fetch Trello data when stand-up starts (using only active members)
 async function handleStartStandup() {
@@ -64,6 +65,8 @@ function handleKeydown(e: KeyboardEvent) {
     } else {
       nextSpeaker()
     }
+  } else if (e.key === 'c' || e.key === 'C') {
+    showChecklists.value = !showChecklists.value
   }
 }
 
@@ -156,6 +159,13 @@ const fixedTimerOptions = [
         color="neutral"
         variant="ghost"
         @click="$colorMode.preference = $colorMode.value === 'dark' ? 'light' : 'dark'"
+      />
+      <UButton
+        :icon="showChecklists ? 'i-lucide-check-square' : 'i-lucide-square'"
+        color="neutral"
+        variant="ghost"
+        :title="showChecklists ? 'Hide checklists (C)' : 'Show checklists (C)'"
+        @click="showChecklists = !showChecklists"
       />
     </header>
 
@@ -406,7 +416,7 @@ const fixedTimerOptions = [
                   <a :href="card.url" target="_blank" class="block hover:opacity-80 transition-opacity">
                     <p class="text-lg font-medium text-gray-800 dark:text-gray-100">{{ card.name }}</p>
                   </a>
-                  <div v-if="card.checklists && card.checklists.length > 0" class="mt-3 space-y-2">
+                  <div v-if="showChecklists && card.checklists && card.checklists.length > 0" class="mt-3 space-y-2">
                     <div v-for="cl in card.checklists" :key="cl.id">
                       <p class="text-xs font-semibold text-green-600 dark:text-green-300 uppercase tracking-wide mb-1">{{ cl.name }}</p>
                       <div class="space-y-1">
@@ -449,7 +459,7 @@ const fixedTimerOptions = [
                       {{ formatDueDate(card.due) }}
                     </p>
                   </a>
-                  <div v-if="card.checklists && card.checklists.length > 0" class="mt-3 space-y-2">
+                  <div v-if="showChecklists && card.checklists && card.checklists.length > 0" class="mt-3 space-y-2">
                     <div v-for="cl in card.checklists" :key="cl.id">
                       <p class="text-xs font-semibold text-orange-600 dark:text-orange-300 uppercase tracking-wide mb-1">{{ cl.name }}</p>
                       <div class="space-y-1">
@@ -489,7 +499,7 @@ const fixedTimerOptions = [
                       {{ formatDueDate(card.due) }}
                     </p>
                   </a>
-                  <div v-if="card.checklists && card.checklists.length > 0" class="mt-3 space-y-2">
+                  <div v-if="showChecklists && card.checklists && card.checklists.length > 0" class="mt-3 space-y-2">
                     <div v-for="cl in card.checklists" :key="cl.id">
                       <p class="text-xs font-semibold text-blue-600 dark:text-blue-300 uppercase tracking-wide mb-1">{{ cl.name }}</p>
                       <div class="space-y-1">

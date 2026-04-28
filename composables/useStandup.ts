@@ -56,6 +56,107 @@ let _initialized = false
 
 let timerInterval: ReturnType<typeof setInterval> | null = null
 let totalInterval: ReturnType<typeof setInterval> | null = null
+let tickTockCtx: AudioContext | null = null
+let countdownActive = false
+
+function playTick(isTock: boolean): void {
+  if (import.meta.server) return
+  try {
+    if (!tickTockCtx || tickTockCtx.state === 'closed') {
+      tickTockCtx = new AudioContext()
+    }
+    const ctx = tickTockCtx
+    const now = ctx.currentTime
+
+    // Short percussive click — tick is higher pitched, tock is lower
+    const osc = ctx.createOscillator()
+    const gain = ctx.createGain()
+    osc.type = 'sine'
+    osc.frequency.setValueAtTime(isTock ? 600 : 800, now)
+    osc.frequency.exponentialRampToValueAtTime(isTock ? 300 : 400, now + 0.08)
+    osc.connect(gain)
+    gain.connect(ctx.destination)
+
+    gain.gain.setValueAtTime(0.3, now)
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.12)
+
+    osc.start(now)
+    osc.stop(now + 0.12)
+  } catch {
+    // Audio not available
+  }
+}
+
+function playAngelicFlute(): void {
+  if (import.meta.server) return
+  try {
+    const ctx = new AudioContext()
+    const now = ctx.currentTime
+    const duration = 3
+
+    // Angelic flute: layered sine waves with gentle vibrato at a major chord
+    const notes = [523.25, 659.25, 783.99, 1046.50] // C5, E5, G5, C6
+    for (const freq of notes) {
+      const osc = ctx.createOscillator()
+      const vibrato = ctx.createOscillator()
+      const vibratoGain = ctx.createGain()
+      const gain = ctx.createGain()
+
+      // Main tone — sine for flute-like purity
+      osc.type = 'sine'
+      osc.frequency.setValueAtTime(freq, now)
+
+      // Gentle vibrato
+      vibrato.type = 'sine'
+      vibrato.frequency.setValueAtTime(5, now)
+      vibratoGain.gain.setValueAtTime(3, now)
+      vibrato.connect(vibratoGain)
+      vibratoGain.connect(osc.frequency)
+
+      osc.connect(gain)
+      gain.connect(ctx.destination)
+
+      // Soft swell in, sustain, gentle fade
+      gain.gain.setValueAtTime(0, now)
+      gain.gain.linearRampToValueAtTime(0.06, now + 0.4)
+      gain.gain.setValueAtTime(0.06, now + duration - 1)
+      gain.gain.linearRampToValueAtTime(0, now + duration)
+
+      osc.start(now)
+      osc.stop(now + duration)
+      vibrato.start(now)
+      vibrato.stop(now + duration)
+    }
+
+    // Add a breathy noise layer for realism
+    const bufferSize = ctx.sampleRate * duration
+    const noiseBuffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate)
+    const data = noiseBuffer.getChannelData(0)
+    for (let i = 0; i < bufferSize; i++) {
+      data[i] = (Math.random() * 2 - 1) * 0.015
+    }
+    const noise = ctx.createBufferSource()
+    const noiseGain = ctx.createGain()
+    const noiseFilter = ctx.createBiquadFilter()
+    noise.buffer = noiseBuffer
+    noiseFilter.type = 'bandpass'
+    noiseFilter.frequency.setValueAtTime(800, now)
+    noiseFilter.Q.setValueAtTime(1, now)
+    noise.connect(noiseFilter)
+    noiseFilter.connect(noiseGain)
+    noiseGain.connect(ctx.destination)
+    noiseGain.gain.setValueAtTime(0, now)
+    noiseGain.gain.linearRampToValueAtTime(0.08, now + 0.4)
+    noiseGain.gain.setValueAtTime(0.08, now + duration - 1)
+    noiseGain.gain.linearRampToValueAtTime(0, now + duration)
+    noise.start(now)
+    noise.stop(now + duration)
+
+    setTimeout(() => ctx.close(), (duration + 0.5) * 1000)
+  } catch {
+    // Audio not available
+  }
+}
 
 export function useStandup() {
   // Initialize from localStorage once on client
@@ -113,9 +214,19 @@ export function useStandup() {
     stopTimer()
     timeRemaining.value = timerDuration.value
     timerRunning.value = true
+    countdownActive = false
     timerInterval = setInterval(() => {
       if (timeRemaining.value > 0) {
         timeRemaining.value--
+        // Tick-tock for the last 10 seconds
+        if (timeRemaining.value <= 10 && timeRemaining.value > 0) {
+          countdownActive = true
+          playTick(timeRemaining.value % 2 === 0)
+        }
+        // Angelic flute when time is up
+        if (timeRemaining.value === 0) {
+          playAngelicFlute()
+        }
       } else {
         timerRunning.value = false
         if (timerInterval) clearInterval(timerInterval)
@@ -125,9 +236,14 @@ export function useStandup() {
 
   function stopTimer(): void {
     timerRunning.value = false
+    countdownActive = false
     if (timerInterval) {
       clearInterval(timerInterval)
       timerInterval = null
+    }
+    if (tickTockCtx && tickTockCtx.state !== 'closed') {
+      tickTockCtx.close()
+      tickTockCtx = null
     }
   }
 
