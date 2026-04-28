@@ -39,17 +39,26 @@ const TRELLO_STORAGE_KEY = 'standup-trello-config'
 interface TrelloConfig {
   apiKey: string
   token: string
-  boardId: string
+  boardId?: string // legacy single board
+  boardIds: string[]
   doneLists: string[]
 }
 
+const DEFAULT_CONFIG: TrelloConfig = { apiKey: '', token: '', boardIds: [], doneLists: [] }
+
 function loadConfig(): TrelloConfig {
-  if (import.meta.server) return { apiKey: '', token: '', boardId: '', doneLists: [] }
+  if (import.meta.server) return { ...DEFAULT_CONFIG }
   try {
     const data = localStorage.getItem(TRELLO_STORAGE_KEY)
-    return data ? JSON.parse(data) : { apiKey: '', token: '', boardId: '', doneLists: [] }
+    if (!data) return { ...DEFAULT_CONFIG }
+    const parsed = JSON.parse(data)
+    // Migrate legacy single boardId to boardIds array
+    if (parsed.boardId && (!parsed.boardIds || parsed.boardIds.length === 0)) {
+      parsed.boardIds = [parsed.boardId]
+    }
+    return { ...DEFAULT_CONFIG, ...parsed }
   } catch {
-    return { apiKey: '', token: '', boardId: '', doneLists: [] }
+    return { ...DEFAULT_CONFIG }
   }
 }
 
@@ -61,7 +70,7 @@ function saveConfig(config: TrelloConfig): void {
 export function useTrello() {
   const apiKey = ref('')
   const token = ref('')
-  const boardId = ref('')
+  const boardIds = ref<string[]>([])
   const doneLists = ref<string[]>([])
 
   const boards = ref<TrelloBoard[]>([])
@@ -71,13 +80,13 @@ export function useTrello() {
 
   const loading = ref(false)
   const error = ref('')
-  const isConfigured = computed(() => apiKey.value && token.value && boardId.value)
+  const isConfigured = computed(() => apiKey.value && token.value && boardIds.value.length > 0)
 
   onMounted(() => {
     const config = loadConfig()
     apiKey.value = config.apiKey
     token.value = config.token
-    boardId.value = config.boardId
+    boardIds.value = config.boardIds
     doneLists.value = config.doneLists
   })
 
@@ -85,7 +94,7 @@ export function useTrello() {
     saveConfig({
       apiKey: apiKey.value,
       token: token.value,
-      boardId: boardId.value,
+      boardIds: boardIds.value,
       doneLists: doneLists.value
     })
   }
@@ -119,21 +128,34 @@ export function useTrello() {
   }
 
   async function fetchBoardData(): Promise<void> {
-    if (!boardId.value) return
+    if (boardIds.value.length === 0) return
     loading.value = true
     error.value = ''
     try {
-      const [fetchedLists, fetchedMembers] = await Promise.all([
-        trelloFetch<TrelloList[]>(`/boards/${boardId.value}/lists?fields=name`),
-        trelloFetch<TrelloMember[]>(`/boards/${boardId.value}/members?fields=fullName,username,avatarUrl`)
-      ])
-      lists.value = fetchedLists
-      members.value = fetchedMembers
+      // Fetch lists and members from all selected boards in parallel
+      const results = await Promise.all(
+        boardIds.value.map(id => Promise.all([
+          trelloFetch<TrelloList[]>(`/boards/${id}/lists?fields=name`),
+          trelloFetch<TrelloMember[]>(`/boards/${id}/members?fields=fullName,username,avatarUrl`)
+        ]))
+      )
+
+      // Merge lists from all boards
+      lists.value = results.flatMap(([boardLists]) => boardLists)
+
+      // Merge and deduplicate members across boards
+      const memberMap = new Map<string, TrelloMember>()
+      for (const [, boardMembers] of results) {
+        for (const m of boardMembers) {
+          memberMap.set(m.id, m)
+        }
+      }
+      members.value = Array.from(memberMap.values())
 
       // Auto-detect done lists if not configured
       if (doneLists.value.length === 0) {
         const donePatterns = ['done', 'complete', 'finished', 'closed']
-        doneLists.value = fetchedLists
+        doneLists.value = lists.value
           .filter(l => donePatterns.some(p => l.name.toLowerCase().includes(p)))
           .map(l => l.id)
       }
@@ -147,26 +169,31 @@ export function useTrello() {
   }
 
   async function fetchMemberTasks(): Promise<void> {
-    if (!boardId.value) return
+    if (boardIds.value.length === 0) return
     loading.value = true
     error.value = ''
     try {
-      const cards = await trelloFetch<(TrelloCard & { idMembers: string[] })[]>(
-        `/boards/${boardId.value}/cards?fields=name,due,dueComplete,idList,idMembers,url,labels`
-      )
+      // Fetch cards from all selected boards in parallel
+      const allCards = (await Promise.all(
+        boardIds.value.map(id =>
+          trelloFetch<(TrelloCard & { idMembers: string[] })[]>(
+            `/boards/${id}/cards?fields=name,due,dueComplete,idList,idMembers,url,labels`
+          )
+        )
+      )).flat()
 
       // Build a list id -> name map
       const listMap = new Map(lists.value.map(l => [l.id, l.name]))
       const doneListIds = new Set(doneLists.value)
 
       // Enrich cards with list names and map members
-      const cardMembers = cards.map(card => ({
+      const cardMembers = allCards.map(card => ({
         card: { ...card, listName: listMap.get(card.idList) || 'Unknown' },
         memberIds: card.idMembers || []
       }))
 
       // Categorize lists by name patterns
-      const doingPatterns = ['doing', 'in progress', 'in-progress', 'wip', 'working']
+      const doingPatterns = ['doing', 'current', 'in progress', 'in-progress', 'wip', 'working']
       const todoPatterns = ['to do', 'todo', 'to-do', 'next', 'planned', 'backlog']
 
       const doingListIds = new Set(
@@ -192,20 +219,24 @@ export function useTrello() {
         })
       }
 
+      // Remove any doing/todo list IDs from done lists to prevent misclassification
+      for (const id of doingListIds) doneListIds.delete(id)
+      for (const id of todoListIds) doneListIds.delete(id)
+
       for (const { card, memberIds } of cardMembers) {
-        const isDone = doneListIds.has(card.idList) || card.dueComplete
         const isDoing = doingListIds.has(card.idList)
         const isTodo = todoListIds.has(card.idList)
+        const isDone = !isDoing && !isTodo && (doneListIds.has(card.idList) || card.dueComplete)
 
         for (const memberId of memberIds) {
           const entry = taskMap.get(memberId)
           if (entry) {
-            if (isDone) {
-              entry.completed.push(card)
-            } else if (isDoing) {
+            if (isDoing) {
               entry.doing.push(card)
             } else if (isTodo) {
               entry.todo.push(card)
+            } else if (isDone) {
+              entry.completed.push(card)
             } else {
               entry.other.push(card)
             }
@@ -252,7 +283,7 @@ export function useTrello() {
   function clearConfig() {
     apiKey.value = ''
     token.value = ''
-    boardId.value = ''
+    boardIds.value = []
     doneLists.value = []
     boards.value = []
     lists.value = []
@@ -265,7 +296,7 @@ export function useTrello() {
     // Config
     apiKey,
     token,
-    boardId,
+    boardIds,
     doneLists,
     isConfigured,
 

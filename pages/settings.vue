@@ -2,7 +2,7 @@
 const {
   apiKey,
   token,
-  boardId,
+  boardIds,
   doneLists,
   isConfigured,
   boards,
@@ -28,7 +28,7 @@ onMounted(async () => {
     if (boards.value.length > 0) {
       connectionTested.value = true
     }
-    if (boardId.value) {
+    if (boardIds.value.length > 0) {
       await fetchBoardData()
     }
   }
@@ -42,8 +42,14 @@ async function handleConnect() {
   }
 }
 
-async function handleBoardSelect(id: string) {
-  boardId.value = id
+async function toggleBoard(id: string) {
+  if (boardIds.value.includes(id)) {
+    boardIds.value = boardIds.value.filter(b => b !== id)
+  } else {
+    boardIds.value = [...boardIds.value, id]
+  }
+  // Reset done lists when boards change so auto-detect runs again
+  doneLists.value = []
   await fetchBoardData()
   saveSettings()
 }
@@ -159,24 +165,33 @@ function handleDisconnect() {
         </div>
       </UCard>
 
-      <!-- Step 2: Select board -->
+      <!-- Step 2: Select boards -->
       <UCard v-if="boards.length > 0" class="shadow-lg border-2 border-pink-100 dark:border-pink-800">
         <template #header>
-          <h2 class="text-lg font-semibold text-gray-800 dark:text-gray-100">2. Select a Board</h2>
+          <h2 class="text-lg font-semibold text-gray-800 dark:text-gray-100">2. Select Boards</h2>
         </template>
 
+        <p class="text-sm text-gray-500 dark:text-gray-400 mb-4">
+          Select one or more boards to pull tasks from during stand-up.
+        </p>
+
         <div class="space-y-2">
-          <UButton
+          <div
             v-for="board in boards"
             :key="board.id"
-            :color="boardId === board.id ? 'primary' : 'neutral'"
-            :variant="boardId === board.id ? 'solid' : 'outline'"
-            block
-            class="justify-start"
-            @click="handleBoardSelect(board.id)"
+            class="flex items-center gap-3 p-3 rounded-xl border cursor-pointer transition-colors"
+            :class="boardIds.includes(board.id)
+              ? 'bg-violet-50 dark:bg-violet-900/20 border-violet-200 dark:border-violet-700'
+              : 'bg-gray-50 dark:bg-gray-800/30 border-gray-200 dark:border-gray-700'"
+            @click="toggleBoard(board.id)"
           >
-            {{ board.name }}
-          </UButton>
+            <UIcon
+              :name="boardIds.includes(board.id) ? 'i-lucide-check-square' : 'i-lucide-square'"
+              :class="boardIds.includes(board.id) ? 'text-violet-500' : 'text-gray-400'"
+              class="text-lg"
+            />
+            <span class="font-medium text-gray-800 dark:text-gray-100">{{ board.name }}</span>
+          </div>
         </div>
       </UCard>
 

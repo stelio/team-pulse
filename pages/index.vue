@@ -53,6 +53,23 @@ const currentSpeakerTasks = computed(() => {
   return getTasksForMember(currentSpeaker.value.trelloMemberId)
 })
 
+// Keyboard navigation: left/right arrows for previous/next speaker
+function handleKeydown(e: KeyboardEvent) {
+  if (phase.value !== 'active') return
+  if (e.key === 'ArrowLeft') {
+    previousSpeaker()
+  } else if (e.key === 'ArrowRight') {
+    if (isLastSpeaker.value) {
+      finishStandup()
+    } else {
+      nextSpeaker()
+    }
+  }
+}
+
+onMounted(() => window.addEventListener('keydown', handleKeydown))
+onUnmounted(() => window.removeEventListener('keydown', handleKeydown))
+
 function formatDueDate(due: string | null): string {
   if (!due) return 'No due date'
   const date = new Date(due)
